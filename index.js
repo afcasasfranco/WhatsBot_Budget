@@ -1,3 +1,4 @@
+require('dotenv').config();
 const makeWASocket = require('@whiskeysockets/baileys').default;
 const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
@@ -17,14 +18,10 @@ const {
 const logger = P({ level: 'info' });
 
 // Reemplaza con el ID del grupo específico que deseas monitorear
-const TARGET_GROUP_ID = '120363314892285145@g.us';
+const TARGET_GROUP_ID = process.env.TARGET_GROUP_ID;
 
 // Mapeo de números de teléfono a nombres
-const userMap = {
-    '573103970422@s.whatsapp.net': 'Andres',
-    '573004833170@s.whatsapp.net': 'Nataly',
-    '573115678900@s.whatsapp.net': 'BOT'
-};
+const userMap = JSON.parse(process.env.USER_MAP);
 
 // Función para obtener el nombre del usuario
 function getUserName(jid) {
@@ -54,11 +51,12 @@ Comandos disponibles:
 1. !miti <monto> - Divide el monto entre dos y actualiza los balances correspondientes. La mitad del monto se debe a la otra persona.
 2. !subtract <monto> - Similar a !miti, pero resta el monto en lugar de sumarlo.
 3. !debe <monto> - Registra el monto completo como una deuda de la otra parte.
-4. !setbalance <monto> - Establece el balance inicial al monto especificado y ajusta el balance de la contraparte al negativo del mismo monto.
-5. !balance - Muestra el balance actual y resume quién le debe a quién.
-6. !erase - Restablece todos los balances a cero.
-7. !ayuda - Muestra esta lista de comandos y sus descripciones.
-8. !corregir - Corrige el último registro.
+4. !pago <monto> - Registra el monto completo como un abono de la deuda de la otra parte.
+5. !setbalance <monto> - Establece el balance inicial al monto especificado y ajusta el balance de la contraparte al negativo del mismo monto.
+6. !balance - Muestra el balance actual y resume quién le debe a quién.
+7. !erase - Restablece todos los balances a cero.
+8. !ayuda - Muestra esta lista de comandos y sus descripciones.
+9. !corregir - Corrige el último registro.
 `;
 
 async function connectToWhatsApp() {
@@ -131,6 +129,10 @@ async function connectToWhatsApp() {
                 await addTransaction(counterpartJid, -amount, description, 'debe');
                 await sock.sendMessage(remoteJid, { text: `Registro: ${formatCurrency(amount)} debe ${getUserName(counterpartJid)} a ${getUserName(senderJid)} - ${description}` });
                 logger.info(`Debe ${formatCurrency(amount)} to ${getUserName(counterpartJid)} by ${getUserName(senderJid)} - ${description}`);
+            } else if (command === '!pago') {
+                await addTransaction(counterpartJid, -amount, description, 'pago');
+                await sock.sendMessage(remoteJid, { text: `Registro: ${formatCurrency(amount)} abono de ${getUserName(senderJid)} a ${getUserName(counterpartJid)} - ${description}` });
+                logger.info(`Abono ${formatCurrency(amount)} from ${getUserName(senderJid)} to ${getUserName(counterpartJid)} - ${description}`);
             } else if (command === '!setbalance') {
                 await setBalance(senderJid, counterpartJid, amount, description);
                 await sock.sendMessage(remoteJid, { text: `Balance establecido: ${formatCurrency(amount)} a favor de ${getUserName(senderJid)} y ${formatCurrency(-amount)} a ${getUserName(counterpartJid)} - ${description}` });
@@ -177,7 +179,7 @@ async function connectToWhatsApp() {
                     if (counterpartTransaction) {
                         await updateTransaction(counterpartTransaction.id, -halfNew, newDescription);
                     }
-                } else if (type === 'debe') {
+                } else if (type === 'debe' || type === 'pago') {
                     await updateTransaction(transactionId, -newAmount, newDescription);
                 }
 
@@ -188,7 +190,7 @@ async function connectToWhatsApp() {
             return;
         }
 
-        const match = text.match(/^(!miti|!subtract|!debe|!setbalance|!corregir)(?:\s+(-?[\d.]+))?$/);
+        const match = text.match(/^(!miti|!subtract|!debe|!pago|!setbalance|!corregir)(?:\s+(-?[\d.]+))?$/);
         if (match) {
             const command = match[1];
             let amount = match[2] ? parseInt(match[2].replace(/\./g, ''), 10) : null;

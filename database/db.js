@@ -1,9 +1,11 @@
 const mariadb = require('mariadb');
+require('dotenv').config();
+
 const pool = mariadb.createPool({
-    host: '192.168.50.250', 
-    user: 'root', 
-    password: '153190',
-    database: 'whatsbot_budget',
+    host: process.env.DB_HOST, 
+    user: process.env.DB_USER, 
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
     connectionLimit: 10,  // Incrementamos el límite de conexiones
     acquireTimeout: 10000 // Ajustamos el tiempo de espera para adquirir una conexión
 });

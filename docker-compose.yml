@@ -1,0 +1,13 @@
+services:
+  whatsapp-bot:
+    build: .
+    container_name: whatsapp-bot
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - TARGET_GROUP_ID=${TARGET_GROUP_ID}
+      - USER_MAP=${USER_MAP}
+    ports:
+      - "3001:3000"
