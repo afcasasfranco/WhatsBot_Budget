@@ -49,9 +49,9 @@ const helpText = `
 Comandos disponibles:
 
 1. !miti <monto> - Divide el monto entre dos y actualiza los balances correspondientes. La mitad del monto se debe a la otra persona.
-2. !subtract <monto> - Similar a !miti, pero resta el monto en lugar de sumarlo.
-3. !debe <monto> - Registra el monto completo como una deuda de la otra parte.
-4. !pago <monto> - Registra el monto completo como un abono de la deuda de la otra parte.
+2. !miti2 <monto> - Similar a !miti, pero reporta para la otra persona.
+3. !debe <monto> - Registra el monto como una deuda de la otra parte.
+4. !pago <monto> - Registra el monto como un abono de la deuda de la otra parte.
 5. !setbalance <monto> - Establece el balance inicial al monto especificado y ajusta el balance de la contraparte al negativo del mismo monto.
 6. !balance - Muestra el balance actual y resume quién le debe a quién.
 7. !erase - Restablece todos los balances a cero.
@@ -190,12 +190,12 @@ async function connectToWhatsApp() {
             return;
         }
 
-        const match = text.match(/^(!miti|!subtract|!debe|!pago|!setbalance|!corregir)(?:\s+(-?[\d.]+))?$/);
+        const match = text.match(/^(!miti|!miti2|!debe|!pago|!setbalance|!corregir)(?:\s+(-?[\d.]+))?$/);
         if (match) {
             const command = match[1];
             let amount = match[2] ? parseInt(match[2].replace(/\./g, ''), 10) : null;
 
-            if (command === '!subtract' && amount !== null) {
+            if (command === '!miti2' && amount !== null) {
                 amount = -amount;
             }
 
