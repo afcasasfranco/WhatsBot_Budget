@@ -2,12 +2,12 @@ const mariadb = require('mariadb');
 require('dotenv').config();
 
 const pool = mariadb.createPool({
-    host: process.env.DB_HOST, 
-    user: process.env.DB_USER, 
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    connectionLimit: 10,  // Incrementamos el límite de conexiones
-    acquireTimeout: 10000 // Ajustamos el tiempo de espera para adquirir una conexión
+    connectionLimit: 10,
+    acquireTimeout: 10000
 });
 
 async function initializeDatabase() {
@@ -22,7 +22,6 @@ async function initializeDatabase() {
             type VARCHAR(10),
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
-        // Alter the table to add the 'type' column if it doesn't exist
         const columns = await conn.query(`SHOW COLUMNS FROM transactions LIKE 'type'`);
         if (columns.length === 0) {
             await conn.query(`ALTER TABLE transactions ADD COLUMN type VARCHAR(10)`);
@@ -42,21 +41,6 @@ async function addTransaction(user, amount, description, type) {
         await conn.query("INSERT INTO transactions (user, amount, description, type) VALUES (?, ?, ?, ?)", [user, amount, description, type]);
     } catch (err) {
         console.error('Error adding transaction:', err);
-        throw err;
-    } finally {
-        if (conn) conn.release();
-    }
-}
-
-async function setBalance(user, counterpart, amount, description) {
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        await conn.query("DELETE FROM transactions WHERE user = ? OR user = ?", [user, counterpart]);
-        await conn.query("INSERT INTO transactions (user, amount, description, type) VALUES (?, ?, ?, ?)", [user, amount, description, 'setbalance']);
-        await conn.query("INSERT INTO transactions (user, amount, description, type) VALUES (?, ?, ?, ?)", [counterpart, -amount, description, 'setbalance']);
-    } catch (err) {
-        console.error('Error setting balance:', err);
         throw err;
     } finally {
         if (conn) conn.release();
@@ -90,42 +74,4 @@ async function eraseTransactions() {
     }
 }
 
-async function getLastTransaction(user, counterpartJid) {
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        const rows = await conn.query(`
-            SELECT * FROM transactions 
-            WHERE (user = ? OR user = ?) 
-            ORDER BY timestamp DESC 
-            LIMIT 1
-        `, [user, counterpartJid]);
-        const lastTransaction = rows[0];
-        
-        if (lastTransaction && lastTransaction.type === 'miti') {
-            lastTransaction.amount *= 2; // Si es de tipo miti, el monto fue la mitad del total
-        }
-        
-        return lastTransaction; // Devuelve el último registro ajustado
-    } catch (err) {
-        console.error('Error retrieving last transaction:', err);
-        throw err;
-    } finally {
-        if (conn) conn.release();
-    }
-}
-
-async function updateTransaction(id, newAmount, newDescription) {
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        await conn.query("UPDATE transactions SET amount = ?, description = ? WHERE id = ?", [newAmount, newDescription, id]);
-    } catch (err) {
-        console.error('Error updating transaction:', err);
-        throw err;
-    } finally {
-        if (conn) conn.release();
-    }
-}
-
-module.exports = { initializeDatabase, addTransaction, getBalances, eraseTransactions, setBalance, getLastTransaction, updateTransaction };
+module.exports = { initializeDatabase, addTransaction, getBalances, eraseTransactions };

@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   whatsapp-bot:
     build: .
@@ -10,4 +12,4 @@ services:
       - TARGET_GROUP_ID=${TARGET_GROUP_ID}
       - USER_MAP=${USER_MAP}
     ports:
-      - "3001:3000"
+      - "3000:3000"
