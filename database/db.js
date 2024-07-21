@@ -47,6 +47,21 @@ async function addTransaction(user, amount, description, type) {
     }
 }
 
+async function setBalance(user, counterpart, amount, description) {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        await conn.query("DELETE FROM transactions WHERE user = ? OR user = ?", [user, counterpart]);
+        await conn.query("INSERT INTO transactions (user, amount, description, type) VALUES (?, ?, ?, ?)", [user, amount, description, 'setbalance']);
+        await conn.query("INSERT INTO transactions (user, amount, description, type) VALUES (?, ?, ?, ?)", [counterpart, -amount, description, 'setbalance']);
+    } catch (err) {
+        console.error('Error setting balance:', err);
+        throw err;
+    } finally {
+        if (conn) conn.release();
+    }
+}
+
 async function getBalances() {
     let conn;
     try {
@@ -74,4 +89,42 @@ async function eraseTransactions() {
     }
 }
 
-module.exports = { initializeDatabase, addTransaction, getBalances, eraseTransactions };
+async function getLastTransaction(user, counterpartJid) {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        const rows = await conn.query(`
+            SELECT * FROM transactions 
+            WHERE (user = ? OR user = ?) 
+            ORDER BY timestamp DESC 
+            LIMIT 1
+        `, [user, counterpartJid]);
+        const lastTransaction = rows[0];
+        
+        if (lastTransaction && lastTransaction.type === 'miti') {
+            lastTransaction.amount *= 2; // Si es de tipo miti, el monto fue la mitad del total
+        }
+        
+        return lastTransaction; // Devuelve el último registro ajustado
+    } catch (err) {
+        console.error('Error retrieving last transaction:', err);
+        throw err;
+    } finally {
+        if (conn) conn.release();
+    }
+}
+
+async function updateTransaction(id, newAmount, newDescription) {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        await conn.query("UPDATE transactions SET amount = ?, description = ? WHERE id = ?", [newAmount, newDescription, id]);
+    } catch (err) {
+        console.error('Error updating transaction:', err);
+        throw err;
+    } finally {
+        if (conn) conn.release();
+    }
+}
+
+module.exports = { initializeDatabase, addTransaction, getBalances, eraseTransactions, updateTransaction, getLastTransaction, setBalance };

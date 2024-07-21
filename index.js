@@ -4,7 +4,7 @@ const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/bai
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const qrcode = require('qrcode-terminal');
-const { initializeDatabase, addTransaction, getBalances, eraseTransactions } = require('./database/db');
+const { initializeDatabase, addTransaction, getBalances, eraseTransactions, getLastTransaction, updateTransaction, setBalance } = require('./database/db');
 
 // Configurar pino para logging detallado
 const logger = P({ level: 'info' });
@@ -27,6 +27,7 @@ function formatCurrency(value) {
 }
 
 const pendingDescriptions = new Map();
+const pendingCorrections = new Map();
 
 const helpText = `
 Comandos disponibles:
@@ -36,6 +37,7 @@ Comandos disponibles:
 4. !balance - Muestra el balance actual y resume quién le debe a quién.
 5. !erase - Restablece todos los balances a cero.
 6. !ayuda - Muestra esta lista de comandos y sus descripciones.
+7. !corregir - Corrige el último registro.
 `;
 
 async function connectToWhatsApp() {
@@ -117,6 +119,10 @@ async function connectToWhatsApp() {
 
                 await sock.sendMessage(remoteJid, { text: `Registro: ${formatCurrency(amount)} abono de ${getUserName(senderJid)} a ${getUserName(counterpartJid)} - ${description}` });
                 logger.info(`Abono ${formatCurrency(amount)} from ${getUserName(senderJid)} to ${getUserName(counterpartJid)} - ${description}`);
+            } else if (command === '!setbalance') {
+                await setBalance(senderJid, counterpartJid, amount, description);
+                await sock.sendMessage(remoteJid, { text: `Balance establecido: ${formatCurrency(amount)} a favor de ${getUserName(senderJid)} y ${formatCurrency(-amount)} a ${getUserName(counterpartJid)} - ${description}` });
+                logger.info(`Balance set to ${formatCurrency(amount)} for ${getUserName(senderJid)} and ${formatCurrency(-amount)} for ${getUserName(counterpartJid)} - ${description}`);
             } else {
                 const halfAmount = Math.ceil(amount / 2);
                 await addTransaction(counterpartJid, -halfAmount, description, 'miti');
@@ -126,13 +132,71 @@ async function connectToWhatsApp() {
             return;
         }
 
-        const match = text.match(/^(!miti|!debe|!pago)(?:\s+(-?[\d.]+))?$/);
+        if (pendingCorrections.has(senderJid)) {
+            const { transactionId, stage, type, counterpartJid, originalAmount } = pendingCorrections.get(senderJid);
+            if (stage === 'confirm') {
+                if (text.toLowerCase() === 'si') {
+                    pendingCorrections.set(senderJid, { transactionId, stage: 'newAmount', type, counterpartJid, originalAmount });
+                    await sock.sendMessage(remoteJid, { text: 'Por favor ingresa el nuevo monto.' });
+                } else {
+                    pendingCorrections.delete(senderJid);
+                    await sock.sendMessage(remoteJid, { text: 'Corrección cancelada.' });
+                }
+            } else if (stage === 'newAmount') {
+                let newAmount = parseInt(text.replace(/\./g, ''), 10);
+                if (!isNaN(newAmount)) {
+                    pendingCorrections.set(senderJid, { transactionId, newAmount, stage: 'newDescription', type, counterpartJid, originalAmount });
+                    await sock.sendMessage(remoteJid, { text: 'Por favor ingresa la nueva descripción.' });
+                } else {
+                    await sock.sendMessage(remoteJid, { text: 'Monto inválido. Corrección cancelada.' });
+                    pendingCorrections.delete(senderJid);
+                }
+            } else if (stage === 'newDescription') {
+                const newDescription = text;
+                const { newAmount, type, counterpartJid, originalAmount } = pendingCorrections.get(senderJid);
+                
+                if (type === 'miti') {
+                    await updateTransaction(transactionId, newAmount / 2, newDescription);
+                    const counterpartTransaction = await getLastTransaction(counterpartJid);
+                    if (counterpartTransaction) {
+                        await updateTransaction(counterpartTransaction.id, -(newAmount / 2), newDescription);
+                    }
+                } else if (type === 'debe') {
+                    await updateTransaction(transactionId, -newAmount, newDescription);
+                } else if (type === 'pago') {
+                    await updateTransaction(transactionId, newAmount, newDescription);
+                }
+
+                pendingCorrections.delete(senderJid);
+                await sock.sendMessage(remoteJid, { text: 'Transacción corregida exitosamente.' });
+                logger.info(`Transaction ${transactionId} updated to amount: ${newAmount}, description: ${newDescription}`);
+            }
+            return;
+        }
+
+        const match = text.match(/^(!miti|!debe|!pago|!setbalance|!corregir)(?:\s+(-?[\d.]+))?$/);
         if (match) {
             const command = match[1];
             let amount = match[2] ? parseInt(match[2].replace(/\./g, ''), 10) : null;
 
-            if (amount !== null) {
+            if (command === '!subtract' && amount !== null) {
+                amount = -amount;
+            }
+
+            if (command === '!corregir') {
                 const counterpartJid = getCounterpart(senderJid);
+                const lastTransaction = await getLastTransaction(senderJid, counterpartJid);
+                if (lastTransaction) {
+                    pendingCorrections.set(senderJid, { transactionId: lastTransaction.id, stage: 'confirm', type: lastTransaction.type, counterpartJid, originalAmount: lastTransaction.amount });
+                    await sock.sendMessage(remoteJid, {
+                        text: `Último registro:\nMonto: ${formatCurrency(lastTransaction.amount)}\nDescripción: ${lastTransaction.description}\nFecha: ${lastTransaction.timestamp}\n\n¿Deseas continuar con la corrección? (responde con "si" o "no")`,
+                    });
+                } else {
+                    await sock.sendMessage(remoteJid, { text: 'No se encontró ninguna transacción anterior para corregir.' });
+                }
+            } else if (amount !== null) {
+                const counterpartJid = getCounterpart(senderJid);
+                
                 if (counterpartJid) {
                     pendingDescriptions.set(senderJid, { command, amount, counterpartJid });
                     await sock.sendMessage(remoteJid, { text: 'Por favor proporciona una descripción para esta transacción.' });
